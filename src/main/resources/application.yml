@@ -1,0 +1,205 @@
+﻿spring:
+  application:
+    name: legal-rag-springboot
+  
+  # Spring AI Ollama Configuration
+  ai:
+    ollama:
+      base-url: http://localhost:11434
+      chat:
+        enabled: true
+        options:
+          model: gpt-oss:120b-cloud
+          temperature: 0.1
+          num-predict: 4096  # ← INCREASED FROM 1024 (prevents cutoff)
+          top-k: 40
+          top-p: 0.9
+          repeat-penalty: 1.1
+  
+  # Cache Configuration
+  cache:
+    type: caffeine
+    caffeine:
+      spec: maximumSize=1000,expireAfterAccess=1h
+  
+  # Jackson Configuration
+  jackson:
+    serialization:
+      indent-output: true
+      write-dates-as-timestamps: false
+    default-property-inclusion: non_null
+  
+  # HTTP Encoding Configuration - FIX UTF-8
+  http:
+    encoding:
+      charset: UTF-8
+      enabled: true
+      force: true
+
+# Server Configuration
+server:
+  port: 8080
+  
+  # UTF-8 Servlet Encoding - FIX VIETNAMESE CHARACTERS
+  servlet:
+    encoding:
+      charset: UTF-8
+      enabled: true
+      force: true
+      force-request: true
+      force-response: true
+  
+  compression:
+    enabled: true
+    mime-types: application/json,application/xml,text/html,text/xml,text/plain
+  
+  tomcat:
+    threads:
+      max: 200
+      min-spare: 10
+    connection-timeout: 300s  # ← INCREASED for long LLM responses
+    uri-encoding: UTF-8  # ← FIX UTF-8 for Tomcat URI
+
+# Management & Monitoring
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+      base-path: /actuator
+  endpoint:
+    health:
+      show-details: always
+  metrics:
+    export:
+      prometheus:
+        enabled: true
+    tags:
+      application: ${spring.application.name}
+
+# Logging Configuration
+logging:
+  level:
+    root: INFO
+    com.legalrag: DEBUG
+    org.springframework.ai: DEBUG
+    dev.langchain4j: DEBUG
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n"
+    file: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n"
+  file:
+    name: logs/legal-rag.log
+    max-size: 10MB
+    max-history: 30
+  charset:
+    console: UTF-8
+    file: UTF-8
+
+# Custom Application Configuration
+legal-rag:
+  # ============================================================
+  # Dataset Configuration - SINGLE DATASET MODE
+  # ============================================================
+  dataset:
+    # Single dataset configuration
+    index: data/faiss.index
+    metadata: data/metadata.jsonl
+    corpus: data/data_corpus.json
+    bm25-cache: data/bm25_cache.gz
+
+  
+  # ============================================================
+  # Embedding Configuration
+  # ============================================================
+  embedding:
+    dimension: 768
+    auto-start: true
+    timeout-seconds: 60
+    python-command: python
+    python-script-path: scripts/embedding_service.py
+
+  
+  # ============================================================
+  # Reranker Configuration
+  # ============================================================
+  reranker:
+    model: AITeamVN/Vietnamese_Reranker
+    max-length: 2304
+    batch-size: 8
+  
+  # ============================================================
+  # RAG Configuration
+  # ============================================================
+  rag:
+    retrieval:
+      top-k: 100
+      rerank-top-k: 15
+      alpha: 0.6  # Hybrid weight: 60% dense, 40% sparse (BM25)
+    
+    # Deep Thinking Configuration
+    deep-thinking:
+      enabled: true
+      top-k-per-keyword: 30
+      final-top-k: 8
+      max-keywords: 10
+      timeout-seconds: 180  
+  
+  # ============================================================
+  # LLM Configuration
+  # ============================================================
+  llm:
+    max-tokens: 4096
+    timeout-seconds: 60
+    
+  # ============================================================
+  # Session Management
+  # ============================================================
+  session:
+    max-history: 20
+    max-context-turns: 5
+  
+  # ============================================================
+  # Performance Monitoring
+  # ============================================================
+  monitoring:
+    enabled: true
+    max-query-history: 100
+
+# Resilience4j Circuit Breaker
+resilience4j:
+  circuitbreaker:
+    instances:
+      ollama:
+        register-health-indicator: true
+        sliding-window-size: 10
+        minimum-number-of-calls: 5
+        permitted-number-of-calls-in-half-open-state: 3
+        wait-duration-in-open-state: 30s
+        failure-rate-threshold: 50
+      embedding:
+        register-health-indicator: true
+        sliding-window-size: 10
+        minimum-number-of-calls: 5
+        wait-duration-in-open-state: 15s
+        failure-rate-threshold: 50
+  
+  retry:
+    instances:
+      ollama:
+        max-attempts: 3
+        wait-duration: 2s
+        enable-exponential-backoff: true
+        exponential-backoff-multiplier: 2
+      embedding:
+        max-attempts: 2
+        wait-duration: 1s
+
+# Actuator Info
+info:
+  app:
+    name: Legal RAG Spring Boot
+    description: Advanced Legal RAG System with Hybrid Search (BM25 + Vector)
+    version: 1.0.0
+    java-version: ${java.version}
+    embedding-model: Python FastAPI (dangvantuan/vietnamese-embedding)
+    search-mode: Hybrid (60% Vector + 40% BM25)
